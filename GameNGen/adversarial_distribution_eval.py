@@ -90,7 +90,6 @@ def compute_wasserstein(p: np.ndarray, q: np.ndarray) -> float:
     p_flat = p.flatten().astype(float)
     q_flat = q.flatten().astype(float)
     
-    # Use 1D Wasserstein for efficiency
     return float(stats.wasserstein_distance(p_flat, q_flat))
 
 
@@ -104,7 +103,6 @@ def extract_features(images: np.ndarray) -> np.ndarray:
     features = []
     for img in images:
         feat = []
-        # Color statistics per channel
         for c in range(3):
             channel = img[:, :, c].astype(float)
             feat.extend([
@@ -116,7 +114,6 @@ def extract_features(images: np.ndarray) -> np.ndarray:
                 stats.kurtosis(channel.flatten())
             ])
         
-        # Gradient statistics
         gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY).astype(float)
         gx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
         gy = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
@@ -128,7 +125,6 @@ def extract_features(images: np.ndarray) -> np.ndarray:
             np.max(grad_mag)
         ])
         
-        # Frequency domain
         fft = np.fft.fft2(gray)
         fft_shift = np.fft.fftshift(fft)
         magnitude = np.abs(fft_shift)
@@ -154,7 +150,6 @@ def compute_fid(original_feats: np.ndarray, adversarial_feats: np.ndarray) -> fl
     
     diff = mu1 - mu2
     
-    # Handle scalar covariance case
     if sigma1.ndim == 0:
         sigma1 = np.array([[sigma1]])
         sigma2 = np.array([[sigma2]])
@@ -199,7 +194,7 @@ def compute_cosine_shift(original_feats: np.ndarray, adversarial_feats: np.ndarr
         return 0.0
     
     cosine_sim = dot / norm
-    return float(1 - cosine_sim)  # Convert to distance
+    return float(1 - cosine_sim) 
 
 
 # ==================== ADVERSARIAL DETECTION ====================
@@ -258,7 +253,6 @@ class AdversarialDistributionEvaluator:
                                      adversarials: np.ndarray) -> Dict:
         """Measure distribution shift between original and adversarial sets"""
         
-        # Extract features
         orig_feats = extract_features(originals)
         adv_feats = extract_features(adversarials)
         
@@ -272,12 +266,10 @@ class AdversarialDistributionEvaluator:
             js_scores.append(compute_js_divergence(orig, adv))
             wass_scores.append(compute_wasserstein(orig, adv))
         
-        # Feature-level metrics
         fid = compute_fid(orig_feats, adv_feats)
         mmd = compute_mmd(orig_feats, adv_feats)
         cosine = compute_cosine_shift(orig_feats, adv_feats)
         
-        # Perturbation stats
         l2_norms = [compute_l2_perturbation(o, a) for o, a in zip(originals, adversarials)]
         linf_norms = [compute_linf_perturbation(o, a) for o, a in zip(originals, adversarials)]
         
@@ -351,31 +343,25 @@ if __name__ == "__main__":
     
     print("Generating test data...")
     
-    # Simulate original Mario frames
     n_samples = 20
     originals = np.zeros((n_samples, 240, 256, 3), dtype=np.uint8)
     for i in range(n_samples):
-        originals[i, 200:240, :] = [172, 124, 0]   # Ground
-        originals[i, 0:180, :] = [92, 148, 252]    # Sky
-        originals[i, 100:130, 50+i*5:80+i*5] = [255, 0, 0]  # Mario (moving)
+        originals[i, 200:240, :] = [172, 124, 0]   
+        originals[i, 0:180, :] = [92, 148, 252]   
+        originals[i, 100:130, 50+i*5:80+i*5] = [255, 0, 0]  
     
-    # Simulate adversarial perturbations (FGSM-like)
-    epsilon = 8  # Perturbation budget
+    epsilon = 8  
     adversarials = originals.copy()
     
-    # Add structured adversarial noise
     noise = np.random.randint(-epsilon, epsilon+1, originals.shape, dtype=np.int16)
-    # Make noise slightly structured (adversarial patterns often are)
     for i in range(n_samples):
         noise[i] = cv2.GaussianBlur(noise[i].astype(np.float32), (3, 3), 0).astype(np.int16)
     adversarials = np.clip(originals.astype(np.int16) + noise, 0, 255).astype(np.uint8)
     
-    # Run evaluation
     print("Evaluating distribution shift...")
     results = evaluator.full_evaluation(originals, adversarials)
     evaluator.print_report()
     
-    # Single pair analysis
     print("\n" + "=" * 55)
     print("SINGLE IMAGE PERTURBATION ANALYSIS")
     print("=" * 55)
