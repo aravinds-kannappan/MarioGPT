@@ -249,28 +249,23 @@ class MarioImageQualityEvaluator:
 if __name__ == "__main__":
     evaluator = MarioImageQualityEvaluator()
     
-    # Create synthetic test data (replace with real frames)
     print("Running quality assessment demo...")
     
-    # Simulate original Mario frame
     original = np.zeros((240, 256, 3), dtype=np.uint8)
     original[200:240, :] = [172, 124, 0]  # Ground
     original[0:180, :] = [92, 148, 252]   # Sky
     original[180:200, 50:70] = [56, 204, 108]  # Pipe
     
-    # Simulate generated frame (with some noise/differences)
     generated = original.copy()
     noise = np.random.randint(-15, 15, original.shape, dtype=np.int16)
     generated = np.clip(generated.astype(np.int16) + noise, 0, 255).astype(np.uint8)
     
-    # Single frame evaluation
     print("\nSingle Frame Evaluation:")
     single_result = evaluator.evaluate_with_color(original, generated)
     for k, v in single_result.items():
         if v is not None:
             print(f"  {k}: {v:.4f}" if isinstance(v, float) else f"  {k}: {v}")
     
-    # Batch evaluation
     print("\nBatch Evaluation (10 frames):")
     originals = np.stack([original] * 10)
     generateds = np.stack([
