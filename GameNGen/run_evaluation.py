@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import List, Optional
 import cv2
 
-# Import our evaluation modules
 from mario_eval_metrics import MarioEvaluator
 from mario_image_quality import MarioImageQualityEvaluator
 from adversarial_distribution_eval import AdversarialDistributionEvaluator
@@ -33,11 +32,9 @@ class MarioDiffusionPipeline:
         
         print(f"Loading model from {self.model_id}...")
         
-        # Download full repo
         model_path = snapshot_download(repo_id=self.model_id)
         print(f"Model downloaded to: {model_path}")
         
-        # Load VAE
         try:
             self.vae = AutoencoderKL.from_pretrained(
                 model_path, 
@@ -46,10 +43,8 @@ class MarioDiffusionPipeline:
             print("✓ VAE loaded")
         except Exception as e:
             print(f"VAE loading failed: {e}")
-            # Try loading from root config
             self.vae = AutoencoderKL.from_pretrained(model_path).to(self.device)
         
-        # Load UNet
         try:
             self.unet = UNet2DModel.from_pretrained(
                 model_path,
@@ -59,7 +54,6 @@ class MarioDiffusionPipeline:
         except Exception as e:
             print(f"UNet loading issue: {e}")
         
-        # Load noise scheduler
         try:
             self.noise_scheduler = DDPMScheduler.from_pretrained(
                 model_path,
@@ -81,30 +75,24 @@ class MarioDiffusionPipeline:
         if seed is not None:
             torch.manual_seed(seed)
         
-        # Get image size from model config
         sample_size = getattr(self.unet.config, 'sample_size', 64)
         in_channels = getattr(self.unet.config, 'in_channels', 4)
         
-        # Start from random noise
         latents = torch.randn(
             (1, in_channels, sample_size, sample_size),
             device=self.device
         )
         
-        # Set timesteps
         self.noise_scheduler.set_timesteps(num_inference_steps)
         
-        # Denoise
         for t in self.noise_scheduler.timesteps:
             with torch.no_grad():
                 noise_pred = self.unet(latents, t).sample
             latents = self.noise_scheduler.step(noise_pred, t, latents).prev_sample
         
-        # Decode with VAE
         with torch.no_grad():
             image = self.vae.decode(latents / self.vae.config.scaling_factor).sample
         
-        # Convert to numpy image
         image = (image / 2 + 0.5).clamp(0, 1)
         image = image.cpu().permute(0, 2, 3, 1).numpy()[0]
         image = (image * 255).astype(np.uint8)
@@ -135,7 +123,6 @@ def load_original_mario_frames(path: str = None, n: int = 20) -> np.ndarray:
             frames.append(img)
         return np.stack(frames)
     
-    # Create synthetic reference frames (replace with real data)
     print("Warning: Using synthetic reference frames. Provide real Mario frames for accurate eval.")
     frames = np.zeros((n, 240, 256, 3), dtype=np.uint8)
     for i in range(n):
@@ -152,7 +139,6 @@ def run_full_evaluation(generated: np.ndarray, original: np.ndarray):
     print("MARIO DIFFUSION MODEL EVALUATION")
     print("=" * 60)
     
-    # Resize if dimensions don't match
     if generated.shape[1:3] != original.shape[1:3]:
         print(f"Resizing generated {generated.shape} to match original {original.shape}")
         resized = []
@@ -161,14 +147,12 @@ def run_full_evaluation(generated: np.ndarray, original: np.ndarray):
             resized.append(r)
         generated = np.stack(resized)
     
-    # 1. Visual Fidelity (from mario_eval_metrics.py)
     print("\n[1/3] Visual Fidelity Metrics...")
     eval1 = MarioEvaluator()
     visual_results = eval1.evaluate_visual_fidelity(original, generated)
     print(f"  PSNR: {visual_results['psnr_mean']:.2f} dB")
     print(f"  LPIPS: {visual_results.get('lpips_mean', 'N/A')}")
     
-    # 2. Image Quality (from mario_image_quality.py)
     print("\n[2/3] Image Quality Metrics...")
     eval2 = MarioImageQualityEvaluator()
     quality_results = eval2.evaluate_batch(original, generated)
@@ -176,7 +160,6 @@ def run_full_evaluation(generated: np.ndarray, original: np.ndarray):
     print(f"  Histogram Similarity: {quality_results['histogram_similarity_mean']:.4f}")
     print(f"  Edge Similarity: {quality_results['edge_similarity_mean']:.4f}")
     
-    # 3. Distribution Shift (from adversarial_distribution_eval.py)
     print("\n[3/3] Distribution Shift Metrics...")
     eval3 = AdversarialDistributionEvaluator()
     dist_results = eval3.evaluate_distribution_shift(original, generated)
@@ -185,7 +168,6 @@ def run_full_evaluation(generated: np.ndarray, original: np.ndarray):
     print(f"  KL Divergence: {dist_results['kl_divergence_mean']:.4f}")
     print(f"  Wasserstein: {dist_results['wasserstein_mean']:.4f}")
     
-    # Combined results
     all_results = {
         "visual_fidelity": visual_results,
         "image_quality": quality_results,
@@ -207,16 +189,13 @@ if __name__ == "__main__":
     parser.add_argument("--steps", type=int, default=50, help="Inference steps")
     args = parser.parse_args()
     
-    # Load model
     pipeline = MarioDiffusionPipeline(model_id=args.model)
     pipeline.load_model()
     
-    # Generate frames
     print(f"\nGenerating {args.n_samples} frames...")
     generated = pipeline.generate_batch(args.n_samples, num_inference_steps=args.steps)
     print(f"Generated shape: {generated.shape}")
     
-    # Save some samples
     Path("generated_samples").mkdir(exist_ok=True)
     for i, frame in enumerate(generated[:5]):
         cv2.imwrite(f"generated_samples/gen_{i}.png", cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
@@ -225,7 +204,6 @@ if __name__ == "__main__":
     # Load original frames
     original = load_original_mario_frames(args.original_frames, args.n_samples)
     
-    # Run evaluation
     results = run_full_evaluation(generated, original)
     
     print("\n" + "=" * 60)
