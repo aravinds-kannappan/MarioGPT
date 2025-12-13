@@ -59,7 +59,6 @@ def compute_fvd(real_videos: np.ndarray, generated_videos: np.ndarray, num_frame
             for video in videos:
                 indices = np.linspace(0, len(video) - 1, num_frames, dtype=int)
                 clip = video[indices]
-                # Normalize and reshape for model
                 clip = torch.from_numpy(clip).float().permute(3, 0, 1, 2).unsqueeze(0) / 255.0
                 with torch.no_grad():
                     feat = model(clip).squeeze().numpy()
@@ -110,11 +109,9 @@ def compute_tile_consistency(level: str, valid_tiles: set, tile_rules: Dict = No
     if total == 0:
         return 0.0, {"error": "empty level"}
     
-    # Check valid tiles
     valid_count = sum(1 for t in tiles if t in valid_tiles)
     validity_rate = valid_count / total
     
-    # Check tile rules (e.g., pipes must be paired, ground continuity)
     rule_violations = 0
     if tile_rules:
         for rule_name, rule_fn in tile_rules.items():
@@ -131,7 +128,6 @@ def compute_tile_consistency(level: str, valid_tiles: set, tile_rules: Dict = No
     return validity_rate * 100, report
 
 
-# Mario-specific tile validation
 MARIO_TILES = {
     '-': 'empty/sky',
     'X': 'ground',
@@ -163,8 +159,8 @@ def mario_tile_rules() -> Dict:
 @dataclass
 class SystemMetrics:
     inference_speed_fps: float
-    generation_mode: str  # "real-time" or "offline"
-    difficulty_control: str  # "none", "static", "dynamic"
+    generation_mode: str  
+    difficulty_control: str  
     total_generation_time: float
     frames_generated: int
 
@@ -174,11 +170,9 @@ def measure_inference_speed(generate_fn, num_frames: int = 100, warmup: int = 10
     Measure generation speed and system characteristics
     generate_fn: function that generates one frame, returns frame array
     """
-    # Warmup
     for _ in range(warmup):
         generate_fn()
     
-    # Measure
     start = time.perf_counter()
     for _ in range(num_frames):
         generate_fn()
@@ -223,7 +217,6 @@ class MarioEvaluator:
             "lpips_std": np.std(lpips_scores) if lpips_scores else None,
         }
         
-        # FVD requires video sequences
         if original_frames.ndim == 5:  # (N, T, H, W, C)
             results["fvd"] = compute_fvd(original_frames, generated_frames)
         
@@ -291,10 +284,8 @@ class MarioEvaluator:
 # ==================== EXAMPLE USAGE ====================
 
 if __name__ == "__main__":
-    # Demo with synthetic data
     evaluator = MarioEvaluator()
     
-    # Visual fidelity demo
     print("Testing Visual Fidelity...")
     orig_frames = np.random.randint(0, 256, (10, 224, 256, 3), dtype=np.uint8)
     gen_frames = orig_frames + np.random.randint(-20, 20, orig_frames.shape, dtype=np.int16)
@@ -302,7 +293,6 @@ if __name__ == "__main__":
     
     visual_results = evaluator.evaluate_visual_fidelity(orig_frames, gen_frames)
     
-    # Gameplay demo
     print("Testing Gameplay...")
     sample_levels = [
         "--------------------\n----?--S--?--------\n--------------------\nXXXXXXXXXXXXXXXXXXXX",
@@ -312,10 +302,8 @@ if __name__ == "__main__":
     
     gameplay_results = evaluator.evaluate_gameplay(sample_levels)
     
-    # System demo
     print("Testing System...")
     dummy_generator = lambda: np.random.randint(0, 256, (224, 256, 3), dtype=np.uint8)
     system_results = evaluator.evaluate_system(dummy_generator, num_frames=50)
     
-    # Print report
     evaluator.print_report()
