@@ -3,13 +3,13 @@ Mario Diffusion Model Evaluation Pipeline
 Uses run_autoregressive.py and run_inference.py for generation
 """
 
-# Install dependencies first
-import subprocess
-import sys
-import os
+!git clone https://github.com/aravinds-kannappan/MarioGPT.git
 
 # Add current directory to path for local imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import subprocess
+import sys
 
 subprocess.check_call([sys.executable, "-m", "pip", "install", "-q",
     "torch", "torchvision", "diffusers", "transformers", "accelerate",
@@ -17,6 +17,7 @@ subprocess.check_call([sys.executable, "-m", "pip", "install", "-q",
     "opencv-python-headless", "scipy", "lpips", "pillow", "tqdm"
 ])
 
+sys.path.insert(0, '/content/MarioGPT/GameNGen')
 import numpy as np
 import torch
 from pathlib import Path
@@ -41,6 +42,29 @@ from run_inference import (
     run_inference_img_conditioning_with_params,
 )
 
+import numpy as np
+import torch
+from pathlib import Path
+from typing import List, Optional
+import cv2
+import os
+import random
+from PIL import Image
+from tqdm import tqdm
+from diffusers.image_processor import VaeImageProcessor
+
+from mario_eval_metrics import MarioEvaluator
+from mario_image_quality import MarioImageQualityEvaluator
+from adversarial_distribution_eval import AdversarialDistributionEvaluator
+from config_sd import BUFFER_SIZE, CFG_GUIDANCE_SCALE, TRAINING_DATASET_DICT, DEFAULT_NUM_INFERENCE_STEPS
+from dataset import EpisodeDataset, collate_fn, get_single_batch
+from model import load_model
+from run_inference import (
+    decode_and_postprocess,
+    encode_conditioning_frames,
+    next_latent,
+    run_inference_img_conditioning_with_params,
+)
 
 class MarioGenerationPipeline:
     """Generate frames using the existing model and inference code"""
@@ -204,3 +228,36 @@ def run_full_evaluation(generated: np.ndarray, original: np.ndarray):
     }
     
     return all_results
+
+# ===== CONFIGURATION - EDIT THESE =====
+MODEL_FOLDER = "Flaaaande/mario-sd"  # Change to your model path
+N_SAMPLES = 20
+DATASET = None  # Uses default dataset
+
+# Initialize pipeline
+pipeline = MarioGenerationPipeline(model_folder=MODEL_FOLDER)
+pipeline.load_model()
+
+# Generate frames
+print(f"\nGenerating {N_SAMPLES} frames...")
+generated = pipeline.generate_batch_from_dataset(N_SAMPLES, DATASET)
+print(f"Generated shape: {generated.shape}")
+
+# Get original frames
+print(f"Loading {N_SAMPLES} original frames...")
+original = pipeline.get_original_frames_from_dataset(N_SAMPLES, DATASET)
+print(f"Original shape: {original.shape}")
+
+# Save samples
+Path("generated_samples").mkdir(exist_ok=True)
+for i, frame in enumerate(generated[:5]):
+    cv2.imwrite(f"generated_samples/gen_{i}.png", cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
+print("Saved sample frames to generated_samples/")
+
+# Run evaluation
+results = run_full_evaluation(generated, original)
+
+print("\n" + "=" * 60)
+print("EVALUATION COMPLETE")
+print("=" * 60)
+
