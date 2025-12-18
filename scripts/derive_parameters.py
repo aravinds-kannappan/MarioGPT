@@ -117,22 +117,24 @@ def derive_thresholds(emissions):
     """
     Derive T-score thresholds where distributions intersect.
     
-    From Framework Section 4.2:
-    - T > 0.65: Strong signal for High state
-    - T < 0.35: Strong signal for Low state
+    Uses Gaussian percentiles from calibration data.
     """
     low_mu = emissions['Low']['mu']
     low_sigma = emissions['Low']['sigma']
     high_mu = emissions['High']['mu']
     high_sigma = emissions['High']['sigma']
     
-    # Use percentile-based thresholds
-    thresh_low_trans = low_mu + 0.52 * low_sigma  # ~75th percentile of Low
-    thresh_trans_high = high_mu - 0.52 * high_sigma  # ~25th percentile of High
+    # Low → Transition: 75th percentile of Low
+    thresh_low_trans = low_mu + 0.674 * low_sigma  # ~75th percentile
     
-    # Ensure sensible ordering
-    thresh_low_trans = min(thresh_low_trans, 0.45)
-    thresh_trans_high = max(thresh_trans_high, 0.55)
+    # Transition → High: 25th percentile of High
+    thresh_trans_high = high_mu - 0.674 * high_sigma  # ~25th percentile
+    
+    # Ensure thresholds are ordered correctly
+    if thresh_low_trans >= thresh_trans_high:
+        # Fallback: use means if overlap
+        thresh_low_trans = low_mu
+        thresh_trans_high = high_mu
     
     thresholds = {
         'low_transition': float(thresh_low_trans),
