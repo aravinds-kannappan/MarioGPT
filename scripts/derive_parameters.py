@@ -66,7 +66,7 @@ def compute_t_scores_for_episodes(data, weights, normalization):
             metrics = {
                 'completion_rate': float(row['completed']),
                 'death_rate': float(row['deaths']),
-                'reward_trend': 0.0,  # Single episode
+                'reward_trend': 0.0,  
                 'time_to_complete': float(row['frames']) if row['completed'] else 0.0,
                 'progress_variance': 0.0
             }
@@ -97,13 +97,11 @@ def fit_gaussian_distributions(t_scores):
         
         if len(scores) > 0:
             mu = np.mean(scores)
-            sigma = max(np.std(scores), 0.05)  # Minimum sigma
+            sigma = max(np.std(scores), 0.05)  
             
-            # Transition state should have tighter variance (assessment precision)
             if state_name == 'Transition':
                 sigma = min(sigma, 0.12)
         else:
-            # Fallback to framework defaults
             defaults = {'Low': (0.25, 0.15), 'Transition': (0.50, 0.12), 'High': (0.75, 0.15)}
             mu, sigma = defaults[state_name]
         
@@ -124,15 +122,11 @@ def derive_thresholds(emissions):
     high_mu = emissions['High']['mu']
     high_sigma = emissions['High']['sigma']
     
-    # Low → Transition: 75th percentile of Low
     thresh_low_trans = low_mu + 0.674 * low_sigma  # ~75th percentile
     
-    # Transition → High: 25th percentile of High
     thresh_trans_high = high_mu - 0.674 * high_sigma  # ~25th percentile
     
-    # Ensure thresholds are ordered correctly
     if thresh_low_trans >= thresh_trans_high:
-        # Fallback: use means if overlap
         thresh_low_trans = low_mu
         thresh_trans_high = high_mu
     
@@ -166,20 +160,15 @@ def optimize_metric_weights(data, normalization):
         means = [np.mean(t_scores[d]) for d in ['low', 'transition', 'high']]
         variances = [np.var(t_scores[d]) + 1e-6 for d in ['low', 'transition', 'high']]
         
-        # Between-class variance
         between_var = np.var(means)
         
-        # Within-class variance
         within_var = np.mean(variances)
         
-        # Fisher's discriminant (negative for minimization)
         fisher = between_var / (within_var + 1e-6)
         return -fisher
     
-    # Initial weights from framework
     initial_weights = np.array([0.25, 0.20, 0.25, 0.15, 0.15])
     
-    # Optimize
     result = minimize(
         fisher_score,
         x0=initial_weights,
@@ -236,10 +225,8 @@ def visualize_distributions(t_scores, emissions, save_dir):
         for ax, state, color in zip(axes, states, colors):
             scores = t_scores[state_map[state]]
             
-            # Histogram of actual data
             ax.hist(scores, bins=20, alpha=0.5, color=color, density=True, label='Data')
             
-            # Fitted Gaussian
             mu, sigma = emissions[state]['mu'], emissions[state]['sigma']
             x = np.linspace(0, 1, 100)
             y = norm.pdf(x, mu, sigma)
@@ -277,11 +264,9 @@ def main():
     CONFIG_DIR.mkdir(exist_ok=True)
     FIGURES_DIR.mkdir(parents=True, exist_ok=True)
     
-    # Check if calibration data exists
     if not (CALIBRATION_DIR / 'low_metrics.csv').exists():
         print("\nNo calibration data found. Using framework defaults.")
         
-        # Use defaults from framework
         save_config({
             'death_rate_max': 5.0,
             'reward_trend_min': -50.0,
@@ -313,25 +298,21 @@ def main():
         print(f"\nDefault parameters saved to {CONFIG_DIR}")
         return
     
-    # Load calibration data
     print("\nLoading calibration data...")
     data = load_calibration_data(CALIBRATION_DIR)
     
-    # Step 1: Compute normalization bounds
     print("\n" + "=" * 60)
     print("Step 1: Computing Normalization Bounds")
     print("=" * 60)
     normalization = compute_normalization_bounds(data)
     save_config(normalization, CONFIG_DIR / 'normalization_bounds.json')
     
-    # Step 2: Optimize metric weights
     print("\n" + "=" * 60)
     print("Step 2: Optimizing Metric Weights")
     print("=" * 60)
     weights = optimize_metric_weights(data, normalization)
     save_config({'weights': weights}, CONFIG_DIR / 'metric_weights.json')
     
-    # Step 3: Compute T-scores
     print("\n" + "=" * 60)
     print("Step 3: Computing T-Scores")
     print("=" * 60)
@@ -339,28 +320,24 @@ def main():
     for diff, scores in t_scores.items():
         print(f"  {diff}: mean={np.mean(scores):.3f}, std={np.std(scores):.3f}")
     
-    # Step 4: Fit Gaussian distributions
     print("\n" + "=" * 60)
     print("Step 4: Fitting Emission Distributions")
     print("=" * 60)
     emissions = fit_gaussian_distributions(t_scores)
     save_config(emissions, CONFIG_DIR / 'emission_params.json')
     
-    # Step 5: Derive thresholds
     print("\n" + "=" * 60)
     print("Step 5: Deriving Thresholds")
     print("=" * 60)
     thresholds = derive_thresholds(emissions)
     save_config(thresholds, CONFIG_DIR / 'thresholds.json')
     
-    # Step 6: Create transition matrix
     print("\n" + "=" * 60)
     print("Step 6: Creating Transition Matrix")
     print("=" * 60)
     transition_matrix = create_transition_matrix()
     save_config(transition_matrix, CONFIG_DIR / 'transition_matrix.json')
     
-    # Step 7: Save prompts
     prompts = {
         'Low': "few enemies, no gaps, many pipes, low elevation, easy",
         'Transition': "varied challenges, mixed density, skill assessment",
@@ -368,7 +345,6 @@ def main():
     }
     save_config(prompts, CONFIG_DIR / 'prompts.json')
     
-    # Step 8: Visualize
     print("\n" + "=" * 60)
     print("Step 7: Visualizing Distributions")
     print("=" * 60)
