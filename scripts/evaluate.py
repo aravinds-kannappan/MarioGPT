@@ -32,16 +32,13 @@ def load_training_data(checkpoint_dir, log_dir):
     checkpoint_dir = Path(checkpoint_dir)
     log_dir = Path(log_dir)
     
-    # Try to load metrics from various sources
     metrics_df = None
     
-    # Check checkpoint directory
     metrics_files = sorted(checkpoint_dir.glob('metrics_*.csv'))
     if metrics_files:
         metrics_df = pd.read_csv(metrics_files[-1])
         print(f"Loaded metrics from {metrics_files[-1]}")
     
-    # Check log directory for logger output
     if metrics_df is None:
         log_metrics = sorted(log_dir.glob('*_metrics.csv'))
         if log_metrics:
@@ -52,7 +49,6 @@ def load_training_data(checkpoint_dir, log_dir):
         print("No metrics file found")
         metrics_df = pd.DataFrame()
     
-    # Load HMM state
     hmm_data = {}
     hmm_files = sorted(checkpoint_dir.glob('hmm_*.json'))
     if hmm_files:
@@ -70,7 +66,6 @@ def compute_metrics_by_state(metrics_df, hmm_data):
     if len(state_history) == 0 or metrics_df.empty:
         return {}
     
-    # If state column exists in metrics
     if 'state' in metrics_df.columns:
         pass
     elif len(state_history) == len(metrics_df):
@@ -104,7 +99,6 @@ def generate_visualizations(metrics_df, hmm_data, output_dir):
     
     print("\nGenerating visualizations...")
     
-    # 1. Learning curve with state coloring
     if not metrics_df.empty and 'reward' in metrics_df.columns:
         if 'episode' not in metrics_df.columns:
             metrics_df = metrics_df.copy()
@@ -135,7 +129,6 @@ def generate_visualizations(metrics_df, hmm_data, output_dir):
             except Exception as e:
                 print(f"  ✗ Learning curve failed: {e}")
     
-    # 2. Belief evolution
     belief_history = hmm_data.get('belief_history', [])
     if belief_history:
         try:
@@ -148,7 +141,6 @@ def generate_visualizations(metrics_df, hmm_data, output_dir):
         except Exception as e:
             print(f"  ✗ Belief evolution failed: {e}")
     
-    # 3. State distribution
     state_history = hmm_data.get('state_history', [])
     if state_history:
         try:
@@ -161,7 +153,6 @@ def generate_visualizations(metrics_df, hmm_data, output_dir):
         except Exception as e:
             print(f"  ✗ State distribution failed: {e}")
     
-    # 4. Metrics by state
     metrics_by_state = compute_metrics_by_state(metrics_df, hmm_data)
     if metrics_by_state:
         try:
@@ -180,7 +171,6 @@ def print_summary_statistics(metrics_df, hmm_data, metrics_by_state):
     print("Evaluation Summary")
     print("=" * 60)
     
-    # Overall stats
     if not metrics_df.empty:
         print("\nOverall Performance:")
         print(f"  Total episodes: {len(metrics_df)}")
@@ -194,7 +184,6 @@ def print_summary_statistics(metrics_df, hmm_data, metrics_by_state):
         if 'max_x' in metrics_df.columns:
             print(f"  Average max_x: {metrics_df['max_x'].mean():.1f}")
     
-    # State distribution
     state_history = hmm_data.get('state_history', [])
     if state_history:
         state_counts = Counter(state_history)
@@ -206,13 +195,11 @@ def print_summary_statistics(metrics_df, hmm_data, metrics_by_state):
             pct = count / total * 100 if total > 0 else 0
             print(f"  {state}: {count} episodes ({pct:.1f}%)")
         
-        # Transition frequency
         transitions = sum(1 for i in range(1, len(state_history)) 
                         if state_history[i] != state_history[i-1])
         trans_freq = transitions / len(state_history) * 100 if state_history else 0
         print(f"\nTransition Frequency: {trans_freq:.1f} per 100 episodes")
     
-    # Performance by state
     if metrics_by_state:
         print("\nPerformance by State:")
         for state, metrics in metrics_by_state.items():
@@ -222,7 +209,6 @@ def print_summary_statistics(metrics_df, hmm_data, metrics_by_state):
             print(f"    Avg reward: {metrics['avg_reward']:.2f}")
             print(f"    Avg deaths: {metrics['avg_deaths']:.2f}")
     
-    # Flow zone analysis (Framework Section 7)
     if not metrics_df.empty and 'reward' in metrics_df.columns:
         rewards = metrics_df['reward'].values
         median_r = np.median(rewards)
@@ -256,7 +242,6 @@ def main():
     LOG_DIR = BASE_DIR / 'logs'
     OUTPUT_DIR = BASE_DIR / 'figures' / 'evaluation'
     
-    # Load training data
     print("\nLoading training data...")
     metrics_df, hmm_data = load_training_data(CHECKPOINT_DIR, LOG_DIR)
     
@@ -267,13 +252,10 @@ def main():
     
     print(f"Loaded {len(metrics_df)} episodes")
     
-    # Compute metrics by state
     metrics_by_state = compute_metrics_by_state(metrics_df, hmm_data)
     
-    # Generate visualizations
     generate_visualizations(metrics_df, hmm_data, OUTPUT_DIR)
     
-    # Print summary
     print_summary_statistics(metrics_df, hmm_data, metrics_by_state)
     
     print("\n" + "=" * 60)
