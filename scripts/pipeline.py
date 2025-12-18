@@ -21,13 +21,7 @@ from tqdm import tqdm
 # ============================================================================
 # Ensure we point to the cloned repository
 PROJECT_ROOT = Path("/content/MarioGPT")
-
-# Fallback: if the hardcoded path doesn't exist, try current directory
-if not PROJECT_ROOT.exists():
-    PROJECT_ROOT = Path.cwd()
-
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
+sys.path.append(str(PROJECT_ROOT))
 
 print("Project root added:", PROJECT_ROOT)
 
