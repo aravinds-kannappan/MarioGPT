@@ -463,4 +463,4 @@ def create_directories(base_dir: str):
     ]
 
     for d in dirs:
-        Path(base_dir) / d).mkdir(parents=True, exist_ok=True)
+        (Path(base_dir) / d).mkdir(parents=True, exist_ok=True)
