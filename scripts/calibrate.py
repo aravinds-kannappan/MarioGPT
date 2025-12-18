@@ -19,7 +19,6 @@ from src.level_generator import LevelGenerator
 from src.metrics_collector import MetricsCollector
 from src.utils import set_random_seeds, check_cuda
 
-# Try to import stable-baselines3
 try:
     from stable_baselines3 import PPO
     from stable_baselines3.common.vec_env import DummyVecEnv
@@ -70,7 +69,6 @@ class GymEnvWrapper:
         return self.env.action_space
     
     def reset(self):
-        # Generate new level on reset
         level = self.generator.generate_for_state(self.state)
         self.env.load_new_level(level)
         return self.env.reset()
@@ -91,7 +89,6 @@ def create_ppo_agent(env, device='cpu'):
     if not SB3_AVAILABLE:
         return HeuristicAgent()
     
-    # Wrap environment for SB3
     def make_env():
         return env
     
@@ -124,16 +121,13 @@ def train_baseline_agent(generator, n_episodes=200, device='cpu'):
     print("Training Baseline Agent on Mixed Difficulties")
     print("=" * 60)
     
-    # Create environment that cycles through difficulties
     states = ['Low', 'Transition', 'High']
     
     if SB3_AVAILABLE:
         env = GymEnvWrapper(generator, 'Transition')
         agent = create_ppo_agent(env, device)
         
-        # Train on mixed difficulties
         for episode in tqdm(range(n_episodes), desc="Training baseline"):
-            # Cycle through difficulties
             env.state = states[episode % 3]
             
             obs = env.reset()
@@ -142,7 +136,6 @@ def train_baseline_agent(generator, n_episodes=200, device='cpu'):
                 action, _ = agent.predict(obs, deterministic=False)
                 obs, reward, done, info = env.step(action)
             
-            # Periodic learning
             if (episode + 1) % 20 == 0:
                 agent.learn(total_timesteps=1024, reset_num_timesteps=False)
         
@@ -172,7 +165,6 @@ def collect_calibration_data(agent, generator, difficulty_name, n_episodes=50):
     collector = MetricsCollector()
     
     for episode in tqdm(range(n_episodes), desc=f"{difficulty_name}"):
-        # Generate level at fixed difficulty
         level = generator.generate_for_state(difficulty_name, seed=episode)
         env = MarioEnvWrapper(level)
         
@@ -189,7 +181,6 @@ def collect_calibration_data(agent, generator, difficulty_name, n_episodes=50):
         collector.add_episode(metrics)
         env.close()
     
-    # Convert to DataFrame
     df = pd.DataFrame(list(collector.buffer))
     return df
 
@@ -200,28 +191,23 @@ def main():
     print("HMM-DDA Calibration Process")
     print("=" * 60)
     
-    # Setup paths
     BASE_DIR = Path(__file__).parent.parent
     CALIBRATION_DIR = BASE_DIR / 'calibration_data'
     CALIBRATION_DIR.mkdir(exist_ok=True)
     
-    # Check device
     cuda_available, device_name = check_cuda()
     device = 'cuda' if cuda_available else 'cpu'
     print(f"Using device: {device} ({device_name})")
     
     set_random_seeds(42)
     
-    # Initialize generator
     generator = LevelGenerator(device=device)
     
-    # Step 1: Train baseline agent
     print("\n" + "=" * 60)
     print("Step 1: Training Baseline Agent")
     print("=" * 60)
     agent = train_baseline_agent(generator, n_episodes=200, device=device)
     
-    # Step 2: Collect calibration data for each difficulty
     print("\n" + "=" * 60)
     print("Step 2: Collecting Calibration Data")
     print("=" * 60)
@@ -236,14 +222,12 @@ def main():
             n_episodes=50
         )
         
-        # Save to CSV
         csv_path = CALIBRATION_DIR / f'{difficulty.lower()}_metrics.csv'
         df.to_csv(csv_path, index=False)
         print(f"Saved {difficulty} metrics to {csv_path}")
         
         calibration_results[difficulty] = df
     
-    # Step 3: Summary statistics
     print("\n" + "=" * 60)
     print("Calibration Summary")
     print("=" * 60)
