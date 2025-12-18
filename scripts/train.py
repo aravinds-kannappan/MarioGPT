@@ -3,7 +3,6 @@ Training Script for HMM-DDA Framework
 
 Main training loop with PPO agent and HMM-driven difficulty adaptation.
 
-From Framework Section 5 & 6:
 - Single RL agent (PPO) experiences adaptive difficulty
 - HMM operates as external controller (doesn't modify policy, only environment)
 - Agent naturally transfers skills across difficulties
@@ -40,7 +39,6 @@ from src.metrics_collector import MetricsCollector
 from src.t_score import compute_T_score, get_metric_contributions
 from src.utils import Logger, set_random_seeds, check_cuda, load_config, save_config
 
-# Try to import stable-baselines3
 try:
     from stable_baselines3 import PPO
     from stable_baselines3.common.vec_env import DummyVecEnv
@@ -50,17 +48,15 @@ except ImportError:
     print("Warning: stable-baselines3 not installed. Using heuristic agent.")
 
 
-# Configuration (from Framework Section 6.3)
 CONFIG = {
     'total_episodes': 5000,
-    'hmm_update_frequency': 10,     # Update HMM every N episodes
-    'metrics_window': 10,           # Window for T-score computation
+    'hmm_update_frequency': 10,     
+    'metrics_window': 10,           
     'checkpoint_frequency': 500,
     'log_frequency': 50,
     'max_steps_per_episode': 2000,
-    'adaptation_frequency': 500,    # Adapt HMM parameters
+    'adaptation_frequency': 500,   
     
-    # PPO hyperparameters (Section 5.1)
     'ppo_config': {
         'learning_rate': 3e-4,
         'n_steps': 512,
@@ -72,8 +68,7 @@ CONFIG = {
         'ent_coef': 0.01,
     },
     
-    # Training frequency
-    'train_freq': 10,  # Train PPO every N episodes
+    'train_freq': 10, 
     'train_timesteps': 2048,
 }
 
@@ -89,20 +84,19 @@ class HeuristicAgent:
     def predict(self, obs, deterministic=False):
         self.jump_cooldown = max(0, self.jump_cooldown - 1)
         
-        # Adaptive strategy based on situation
         if np.random.random() < 0.25 and self.jump_cooldown == 0:
             self.jump_cooldown = 8
-            return 2, None  # Right + jump
+            return 2, None  
         elif np.random.random() < 0.05:
-            return 5, None  # Jump only
+            return 5, None  
         else:
-            return 1, None  # Right
+            return 1, None
     
     def learn(self, *args, **kwargs):
-        pass  # No learning for heuristic
+        pass  
     
     def save(self, path):
-        pass  # No save for heuristic
+        pass  
 
 
 class AdaptiveEnv:
@@ -132,7 +126,6 @@ class AdaptiveEnv:
         return self.env.action_space
     
     def reset(self):
-        # Generate new level based on current HMM state
         state = self.hmm.get_current_state()
         self.current_level = self.generator.generate_for_state(state)
         self.env.load_new_level(self.current_level)
@@ -207,7 +200,6 @@ def train():
     print("HMM-DDA Training with PPO Agent")
     print("=" * 60)
     
-    # Setup paths
     BASE_DIR = Path(__file__).parent.parent
     CONFIG_DIR = BASE_DIR / 'config'
     CHECKPOINT_DIR = BASE_DIR / 'checkpoints'
@@ -217,7 +209,6 @@ def train():
     CHECKPOINT_DIR.mkdir(exist_ok=True)
     LOG_DIR.mkdir(exist_ok=True)
     
-    # Check device
     cuda_available, device_name = check_cuda()
     device = 'cuda' if cuda_available else 'cpu'
     print(f"Device: {device} ({device_name})")
@@ -225,7 +216,6 @@ def train():
     
     set_random_seeds(42)
     
-    # Load or create T-score config
     if (CONFIG_DIR / 'metric_weights.json').exists():
         weights_config = load_config(str(CONFIG_DIR / 'metric_weights.json'))
         norm_config = load_config(str(CONFIG_DIR / 'normalization_bounds.json'))
@@ -247,35 +237,26 @@ def train():
         }
         print("Using default T-score config")
     
-    # Initialize components
     print("\nInitializing components...")
     
-    # 1. HMM Controller
     config_path = str(CONFIG_DIR) if (CONFIG_DIR / 'transition_matrix.json').exists() else None
     hmm = HMM_DDA(config_path)
     print(f"HMM: {hmm}")
     
-    # 2. Level Generator
     generator = LevelGenerator(device=device)
     
-    # 3. Adaptive Environment
     env = AdaptiveEnv(generator, hmm)
     
-    # 4. PPO Agent
     print("Creating PPO agent...")
     agent = create_ppo_agent(env, device, CONFIG['ppo_config'])
     
-    # 5. Metrics Collector
     collector = MetricsCollector(max_size=2000, window_size=CONFIG['metrics_window'])
     
-    # 6. Logger
     logger = Logger(str(LOG_DIR), experiment_name='hmm_dda_training')
     
-    # Training statistics
     episode_rewards = deque(maxlen=100)
     state_counts = {'Low': 0, 'Transition': 0, 'High': 0}
     
-    # Training loop
     print("\n" + "=" * 60)
     print("Starting Training Loop")
     print(f"Total episodes: {CONFIG['total_episodes']}")
@@ -283,26 +264,20 @@ def train():
     print("=" * 60)
     
     for episode in tqdm(range(CONFIG['total_episodes']), desc="Training"):
-        # Get current state before episode
         current_state = hmm.get_current_state()
         state_counts[current_state] += 1
         
-        # Run episode
         metrics = run_episode(env, agent, max_steps=CONFIG['max_steps_per_episode'])
         collector.add_episode(metrics)
         episode_rewards.append(metrics['reward'])
         
-        # Update HMM periodically
         if (episode + 1) % CONFIG['hmm_update_frequency'] == 0:
             if len(collector) >= CONFIG['metrics_window']:
-                # Compute T-score
                 T = compute_T_score(collector, t_score_config, window=CONFIG['metrics_window'])
                 
-                # Update HMM belief
                 new_state = hmm.update(T)
                 belief = hmm.get_belief()
                 
-                # Log if state changed or at log frequency
                 if new_state != current_state or (episode + 1) % CONFIG['log_frequency'] == 0:
                     log_data = {
                         'episode': episode + 1,
@@ -321,34 +296,27 @@ def train():
                     }
                     logger.log(log_data, print_console=(episode + 1) % CONFIG['log_frequency'] == 0)
         
-        # Train PPO agent
         if SB3_AVAILABLE and (episode + 1) % CONFIG['train_freq'] == 0:
             agent.learn(total_timesteps=CONFIG['train_timesteps'], reset_num_timesteps=False)
         
-        # Checkpoint
         if (episode + 1) % CONFIG['checkpoint_frequency'] == 0:
-            # Save HMM
+            
             hmm.save_state(str(CHECKPOINT_DIR / f'hmm_{episode+1}.json'))
             
-            # Save agent
             if SB3_AVAILABLE:
                 agent.save(str(CHECKPOINT_DIR / f'ppo_{episode+1}'))
             
-            # Save metrics
             collector.save_to_csv(str(CHECKPOINT_DIR / f'metrics_{episode+1}.csv'))
             
-            # Print checkpoint summary
             print(f"\n[Checkpoint {episode+1}]")
             print(f"  State: {hmm.get_current_state()}")
             print(f"  Belief: {hmm.get_belief().round(3)}")
             print(f"  Avg Reward (100): {np.mean(episode_rewards):.2f}")
             print(f"  Completion Rate: {collector.get_completion_rate():.2%}")
         
-        # Adapt HMM parameters (prevent oscillation/stagnation)
         if (episode + 1) % CONFIG['adaptation_frequency'] == 0:
             hmm.adapt_transition_matrix()
     
-    # Final save
     print("\n" + "=" * 60)
     print("Training Complete!")
     print("=" * 60)
@@ -359,7 +327,6 @@ def train():
     logger.save_metrics()
     collector.save_to_csv(str(CHECKPOINT_DIR / 'metrics_final.csv'))
     
-    # Final summary
     state_dist = hmm.get_state_distribution()
     trans_freq = hmm.get_transition_frequency()
     
@@ -380,7 +347,6 @@ def train():
     print(f"Final Avg Reward: {np.mean(episode_rewards):.2f}")
     print(f"Final Completion Rate: {collector.get_completion_rate():.2%}")
     
-    # Flow zone analysis (from Framework Section 7)
     all_metrics = list(collector.buffer)
     if all_metrics:
         rewards = [m['reward'] for m in all_metrics]
