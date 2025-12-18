@@ -127,8 +127,8 @@ def derive_thresholds(emissions):
     high_sigma = emissions['High']['sigma']
     
     # Use percentile-based thresholds
-    thresh_low_trans = low_mu + 0.67 * low_sigma  # ~75th percentile of Low
-    thresh_trans_high = high_mu - 0.67 * high_sigma  # ~25th percentile of High
+    thresh_low_trans = low_mu + 0.52 * low_sigma  # ~75th percentile of Low
+    thresh_trans_high = high_mu - 0.52 * high_sigma  # ~25th percentile of High
     
     # Ensure sensible ordering
     thresh_low_trans = min(thresh_low_trans, 0.45)
