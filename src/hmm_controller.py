@@ -46,40 +46,33 @@ class HMM_DDA:
         else:
             self._set_default_parameters()
         
-        # Start in Low state (new players begin easy)
         self.belief = np.array([1.0, 0.0, 0.0])
         
-        # History tracking for analysis and adaptation
         self.state_history: List[str] = []
         self.belief_history: List[np.ndarray] = []
         self.t_score_history: List[float] = []
     
     def _set_default_parameters(self):
         """Set default HMM parameters from framework"""
-        # Transition matrix (from PDF Section 3.2)
-        # Key: Transition state has LOWER self-loop (0.40) for quick assessment
         self.A = np.array([
             [0.70, 0.25, 0.05],  # Low: stays easy, sometimes assesses
             [0.20, 0.40, 0.40],  # Transition: LOW self-loop, decides quickly
             [0.05, 0.25, 0.70]   # High: stays hard, sometimes drops
         ])
         
-        # Emission parameters: Gaussian (μ, σ) for T-score given state
-        # From PDF Section 4.3
+
         self.emission_params = [
-            (0.25, 0.15),  # Low: low T-scores expected
-            (0.50, 0.12),  # Transition: medium T-scores (tighter σ)
-            (0.75, 0.15),  # High: high T-scores expected
+            (0.25, 0.15), 
+            (0.50, 0.12),  
+            (0.75, 0.15),  
         ]
         
-        # MarioGPT prompts for each state
         self.prompts = {
             'Low': "few enemies, no gaps, many pipes, low elevation, easy difficulty",
             'Transition': "varied challenges, mixed enemy density, unpredictable patterns, some gaps, skill assessment",
             'High': "many enemies, many gaps, few pipes, high elevation, hard difficulty"
         }
         
-        # T-score thresholds for interpretation
         self.thresholds = {
             'low_transition': 0.35,   # Below this → Low signal
             'transition_high': 0.65,  # Above this → High signal
@@ -89,7 +82,6 @@ class HMM_DDA:
         """Load parameters from config files"""
         config_path = Path(config_path)
         
-        # Load transition matrix
         trans_file = config_path / 'transition_matrix.json'
         if trans_file.exists():
             with open(trans_file) as f:
@@ -99,7 +91,6 @@ class HMM_DDA:
             self._set_default_parameters()
             return
         
-        # Load emission parameters
         emit_file = config_path / 'emission_params.json'
         if emit_file.exists():
             with open(emit_file) as f:
@@ -110,7 +101,6 @@ class HMM_DDA:
                     (data['High']['mu'], data['High']['sigma'])
                 ]
         
-        # Load prompts
         prompts_file = config_path / 'prompts.json'
         if prompts_file.exists():
             with open(prompts_file) as f:
@@ -122,7 +112,6 @@ class HMM_DDA:
                 'High': "many enemies, many gaps, few pipes, high elevation"
             }
         
-        # Load thresholds
         thresh_file = config_path / 'thresholds.json'
         if thresh_file.exists():
             with open(thresh_file) as f:
@@ -148,25 +137,20 @@ class HMM_DDA:
         Returns:
             New state name (argmax of belief)
         """
-        # Prediction step: apply transition matrix
         predicted = self.belief @ self.A
         
-        # Observation step: compute emission probabilities
         emissions = np.array([
             self.gaussian_pdf(T_score, mu, sigma)
             for mu, sigma in self.emission_params
         ])
         
-        # Bayes update
         posterior = predicted * emissions
         
-        # Normalize
         if posterior.sum() > 0:
             self.belief = posterior / posterior.sum()
         else:
-            self.belief = predicted  # Fallback if all probs are 0
+            self.belief = predicted  
         
-        # Record history
         current_state = self.get_current_state()
         self.state_history.append(current_state)
         self.belief_history.append(self.belief.copy())
@@ -215,14 +199,12 @@ class HMM_DDA:
         recent = self.state_history[-window:]
         transitions = sum(1 for i in range(1, len(recent)) if recent[i] != recent[i-1])
         
-        # Oscillation: too many transitions
         if transitions > 30:
             print(f"Detected oscillation ({transitions} transitions). Increasing stability.")
             for i in range(self.n_states):
                 self.A[i, i] = min(0.90, self.A[i, i] * 1.1)
             self.A = self.A / self.A.sum(axis=1, keepdims=True)
         
-        # Stagnation: stuck in one state despite varying T-scores
         if len(set(recent)) == 1 and len(self.t_score_history) >= 50:
             t_std = np.std(self.t_score_history[-50:])
             if t_std > 0.15:
@@ -287,7 +269,6 @@ def test_hmm():
     print(f"Initial: {hmm}")
     print(f"Prompt: {hmm.get_prompt()}")
     
-    # Simulate player improving
     t_scores = [0.3, 0.35, 0.4, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8]
     
     print("\nSimulating player progression:")
