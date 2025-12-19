@@ -16,18 +16,7 @@ import numpy as np
 from collections import deque, Counter
 from tqdm import tqdm
 
-# ============================================================================
-# PATH SETUP
-# ============================================================================
-# Ensure we point to the cloned repository
-PROJECT_ROOT = Path("/content/MarioGPT")
-sys.path.append(str(PROJECT_ROOT))
 
-print("Project root added:", PROJECT_ROOT)
-
-# ============================================================================
-# IMPORTS
-# ============================================================================
 try:
     from src.mario_env import MarioGridEnv
     from src.level_generator import LevelGenerator
@@ -93,7 +82,6 @@ except ImportError as e:
     print(f"Details: {e}")
     raise e
 
-# Check SB3 availability
 try:
     from stable_baselines3 import PPO
     from stable_baselines3.common.vec_env import DummyVecEnv
@@ -101,10 +89,6 @@ try:
 except ImportError:
     SB3_AVAILABLE = False
 
-
-# ============================================================================
-# CONFIGURATION
-# ============================================================================
 
 PIPELINE_CONFIG = {
     'total_episodes': 1000,
@@ -121,9 +105,6 @@ PIPELINE_CONFIG = {
     'seed': 42,
 }
 
-# ============================================================================
-# PHASE 1: CALIBRATION
-# ============================================================================
 
 def phase1_calibration(generator: LevelGenerator, device: str, config: dict, output_dir: Path):
     """
@@ -138,7 +119,6 @@ def phase1_calibration(generator: LevelGenerator, device: str, config: dict, out
     calibration_dir = output_dir / 'calibration_data'
     calibration_dir.mkdir(parents=True, exist_ok=True)
 
-    # Step 1: Train baseline agent
     print("\nStep 1.1: Calling train_baseline_agent() from scripts/calibrate.py...")
     agent = train_baseline_agent(
         generator=generator,
@@ -146,7 +126,6 @@ def phase1_calibration(generator: LevelGenerator, device: str, config: dict, out
         device=device
     )
 
-    # Step 2: Collect calibration data
     print("\nStep 1.2: Calling collect_calibration_data() from scripts/calibrate.py...")
     calibration_results = {}
 
@@ -158,7 +137,6 @@ def phase1_calibration(generator: LevelGenerator, device: str, config: dict, out
             n_episodes=config['calibration_episodes_per_difficulty']
         )
 
-        # Save to CSV
         csv_path = calibration_dir / f'{difficulty.lower()}_metrics.csv'
         df.to_csv(csv_path, index=False)
         calibration_results[difficulty] = df
@@ -169,9 +147,6 @@ def phase1_calibration(generator: LevelGenerator, device: str, config: dict, out
     return calibration_results, agent
 
 
-# ============================================================================
-# PHASE 2: PARAMETER DERIVATION
-# ============================================================================
 
 def phase2_derive_parameters(calibration_dir: Path, output_dir: Path):
     """
@@ -188,42 +163,34 @@ def phase2_derive_parameters(calibration_dir: Path, output_dir: Path):
     config_dir.mkdir(parents=True, exist_ok=True)
     figures_dir.mkdir(parents=True, exist_ok=True)
 
-    # Step 2.1: Load calibration data
     print("\nStep 2.1: Calling load_calibration_data()...")
     data = load_calibration_data(calibration_dir)
 
-    # Step 2.2: Compute normalization bounds
     print("\nStep 2.2: Calling compute_normalization_bounds()...")
     normalization = compute_normalization_bounds(data)
     save_config(normalization, str(config_dir / 'normalization_bounds.json'))
 
-    # Step 2.3: Optimize metric weights
     print("\nStep 2.3: Calling optimize_metric_weights()...")
     weights = optimize_metric_weights(data, normalization)
     save_config({'weights': weights}, str(config_dir / 'metric_weights.json'))
 
-    # Step 2.4: Compute T-scores
     print("\nStep 2.4: Calling compute_t_scores_for_episodes()...")
     t_scores = compute_t_scores_for_episodes(data, weights, normalization)
     for diff, scores in t_scores.items():
         print(f"  {diff}: mean={np.mean(scores):.3f}, std={np.std(scores):.3f}")
 
-    # Step 2.5: Fit emission distributions
     print("\nStep 2.5: Calling fit_gaussian_distributions()...")
     emissions = fit_gaussian_distributions(t_scores)
     save_config(emissions, str(config_dir / 'emission_params.json'))
 
-    # Step 2.6: Derive thresholds
     print("\nStep 2.6: Calling derive_thresholds()...")
     thresholds = derive_thresholds(emissions)
     save_config(thresholds, str(config_dir / 'thresholds.json'))
 
-    # Step 2.7: Create transition matrix
     print("\nStep 2.7: Calling create_transition_matrix()...")
     transition_matrix = create_transition_matrix()
     save_config(transition_matrix, str(config_dir / 'transition_matrix.json'))
 
-    # Step 2.8: Save prompts
     prompts = {
         'Low': "few enemies, no gaps, many pipes, low elevation, easy",
         'Transition': "varied challenges, mixed density, skill assessment",
@@ -231,7 +198,6 @@ def phase2_derive_parameters(calibration_dir: Path, output_dir: Path):
     }
     save_config(prompts, str(config_dir / 'prompts.json'))
 
-    # Step 2.9: Visualize
     print("\nStep 2.8: Calling visualize_distributions()...")
     visualize_distributions(t_scores, emissions, figures_dir)
 
@@ -245,10 +211,6 @@ def phase2_derive_parameters(calibration_dir: Path, output_dir: Path):
         'transition_matrix': transition_matrix,
     }
 
-
-# ============================================================================
-# PHASE 3: TRAINING
-# ============================================================================
 
 def phase3_training(generator: LevelGenerator, device: str, config: dict,
                     output_dir: Path, derived_params: dict):
@@ -267,35 +229,28 @@ def phase3_training(generator: LevelGenerator, device: str, config: dict,
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    # Build T-score config
     t_score_config = {
         'weights': derived_params['weights'],
         'normalization': derived_params['normalization']
     }
 
-    # Initialize HMM_DDA
     print("\nInitializing HMM_DDA...")
     config_path = str(config_dir) if (config_dir / 'transition_matrix.json').exists() else None
     hmm = HMM_DDA(config_path)
     print(f"  {hmm}")
 
-    # Initialize AdaptiveEnv
     print("\nInitializing AdaptiveEnv...")
     env = AdaptiveEnv(generator, hmm)
 
-    # Create agent
     print(f"\nCalling create_ppo_agent() (SB3: {SB3_AVAILABLE})...")
     agent = create_train_ppo_agent(env, device, TRAIN_CONFIG.get('ppo_config'))
 
-    # Initialize MetricsCollector
     print("\nInitializing MetricsCollector...")
     collector = MetricsCollector(max_size=2000, window_size=config['metrics_window'])
 
-    # Initialize Logger
     print("Initializing Logger...")
     logger = Logger(str(log_dir), experiment_name='hmm_dda_training')
 
-    # Training statistics
     episode_rewards = deque(maxlen=100)
     state_counts = {'Low': 0, 'Transition': 0, 'High': 0}
 
@@ -306,14 +261,11 @@ def phase3_training(generator: LevelGenerator, device: str, config: dict,
         current_state = hmm.get_current_state()
         state_counts[current_state] += 1
 
-        # Run episode
         metrics = run_episode(env, agent, max_steps=config['max_steps_per_episode'])
 
-        # Update collector
         collector.add_episode(metrics)
         episode_rewards.append(metrics['reward'])
 
-        # Update HMM periodically
         if (episode + 1) % config['hmm_update_frequency'] == 0:
             if len(collector) >= config['metrics_window']:
                 T = compute_T_score(collector, t_score_config, window=config['metrics_window'])
@@ -338,11 +290,9 @@ def phase3_training(generator: LevelGenerator, device: str, config: dict,
                     }
                     logger.log(log_data, print_console=(episode + 1) % config['log_frequency'] == 0)
 
-        # Train PPO
         if SB3_AVAILABLE and (episode + 1) % config['train_freq'] == 0:
             agent.learn(total_timesteps=config['train_timesteps'], reset_num_timesteps=False)
 
-        # Checkpoint
         if (episode + 1) % config['checkpoint_frequency'] == 0:
             hmm.save_state(str(checkpoint_dir / f'hmm_{episode+1}.json'))
             if SB3_AVAILABLE:
@@ -353,11 +303,9 @@ def phase3_training(generator: LevelGenerator, device: str, config: dict,
             print(f"  State: {hmm.get_current_state()}, Belief: {hmm.get_belief().round(3)}")
             print(f"  Avg Reward: {np.mean(episode_rewards):.2f}, CR: {collector.get_completion_rate():.2%}")
 
-        # Adapt HMM
         if (episode + 1) % config['adaptation_frequency'] == 0:
             hmm.adapt_transition_matrix()
 
-    # Final save
     hmm.save_state(str(checkpoint_dir / 'hmm_final.json'))
     if SB3_AVAILABLE:
         agent.save(str(checkpoint_dir / 'ppo_final'))
@@ -375,11 +323,6 @@ def phase3_training(generator: LevelGenerator, device: str, config: dict,
         'checkpoint_dir': checkpoint_dir,
         'log_dir': log_dir,
     }
-
-
-# ============================================================================
-# PHASE 4: EVALUATION
-# ============================================================================
 
 def phase4_evaluation(training_results: dict, output_dir: Path):
     """
@@ -431,10 +374,6 @@ def phase4_evaluation(training_results: dict, output_dir: Path):
     print(f"\nFigures saved to {figures_dir}")
 
 
-# ============================================================================
-# MAIN PIPELINE
-# ============================================================================
-
 def main(args=None):
     if args is None:
         parser = argparse.ArgumentParser(description='HMM-DDA Complete Pipeline')
@@ -456,7 +395,6 @@ def main(args=None):
     print("HMM-DDA COMPLETE PIPELINE")
     print("=" * 60)
 
-    # Setup
     set_random_seeds(args.seed)
     cuda_available, device_name = check_cuda()
     device = args.device if args.device == 'cpu' or cuda_available else 'cpu'
@@ -466,17 +404,14 @@ def main(args=None):
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Update config
     config = PIPELINE_CONFIG.copy()
     config['total_episodes'] = args.episodes
     config['calibration_episodes_per_difficulty'] = args.calibration_episodes
     save_config(config, str(output_dir / 'run_config.json'))
 
-    # Initialize Generator
     print("\nInitializing LevelGenerator...")
     generator = LevelGenerator(device=device)
 
-    # Phases
     if not args.skip_calibration:
         phase1_calibration(generator, device, config, output_dir)
         calibration_dir = output_dir / 'calibration_data'
@@ -485,7 +420,6 @@ def main(args=None):
         print("\nSkipping calibration, using default parameters...")
         config_dir = output_dir / 'config'
         config_dir.mkdir(parents=True, exist_ok=True)
-        # Default parameters
         derived_params = {
             'weights': [0.25, 0.20, 0.25, 0.15, 0.15],
             'normalization': {
@@ -506,7 +440,6 @@ def main(args=None):
                 'states': ['Low', 'Transition', 'High'],
             }
         }
-        # Save defaults
         save_config(derived_params['normalization'], str(config_dir / 'normalization_bounds.json'))
         save_config({'weights': derived_params['weights']}, str(config_dir / 'metric_weights.json'))
         save_config(derived_params['emissions'], str(config_dir / 'emission_params.json'))
@@ -527,7 +460,6 @@ def main(args=None):
 
 
 if __name__ == "__main__":
-    # Notebook execution
     try:
         get_ipython()
         print("Detected Notebook Environment.")
@@ -541,5 +473,4 @@ if __name__ == "__main__":
 
         main(NotebookArgs())
     except NameError:
-        # Script execution
         main()
