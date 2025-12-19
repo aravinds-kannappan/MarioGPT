@@ -53,10 +53,8 @@ class DiffusionAnalyzer:
         self.config = config
         self.device = torch.device(config.device)
         
-        # Load model
         self._load_model()
         
-        # Load dataset for reference
         self.dataset = DeepRTSDataset(
             config.dataset_path,
             buffer_size=8,
@@ -64,7 +62,6 @@ class DiffusionAnalyzer:
             max_samples=config.num_samples * 10
         )
         
-        # Results storage
         self.results = {}
         
     def _load_model(self):
@@ -76,7 +73,6 @@ class DiffusionAnalyzer:
         
         training_config = checkpoint.get("config", TrainingConfig())
         
-        # Initialize model components
         self.context_encoder = ContextEncoder(
             buffer_size=training_config.buffer_size if hasattr(training_config, 'buffer_size') else 8,
             out_dim=768
@@ -93,12 +89,10 @@ class DiffusionAnalyzer:
             context_dim=768
         ).to(self.device)
         
-        # Load weights
         self.context_encoder.load_state_dict(checkpoint["context_encoder"])
         self.action_embed.load_state_dict(checkpoint["action_embed"])
         self.unet.load_state_dict(checkpoint["unet"])
         
-        # Set to eval mode
         self.context_encoder.eval()
         self.action_embed.eval()
         self.unet.eval()
@@ -118,30 +112,23 @@ class DiffusionAnalyzer:
         """
         batch_size = context_frames.shape[0]
         
-        # Encode context
         context_embed = self.context_encoder(context_frames)
         
-        # Action embedding
         action_tensor = torch.tensor([action], device=self.device).expand(batch_size)
         action_embed = self.action_embed(action_tensor).unsqueeze(1)
         
-        # Combined conditioning
         conditioning = context_embed + action_embed
         
-        # Start from noise
         x = torch.randn(
             batch_size, 3, 64, 64,
             device=self.device
         )
         
-        # Simple DDPM sampling
         for t in reversed(range(0, 1000, 1000 // num_inference_steps)):
             timestep = torch.tensor([t], device=self.device).expand(batch_size)
             
-            # Predict noise
             noise_pred = self.unet(x, timestep, conditioning)
             
-            # DDPM update step (simplified)
             alpha = (1 - t / 1000)
             alpha_prev = (1 - max(0, t - 1000 // num_inference_steps) / 1000)
             
@@ -170,7 +157,6 @@ class DiffusionAnalyzer:
             "per_action_variance": []
         }
         
-        # Sample random contexts from dataset
         num_test = min(self.config.num_samples, len(self.dataset))
         indices = np.random.choice(len(self.dataset), num_test, replace=False)
         
@@ -180,13 +166,11 @@ class DiffusionAnalyzer:
             sample = self.dataset[idx]
             context_frames = sample["context_frames"].unsqueeze(0).to(self.device)
             
-            # Generate frames for all 15 actions
             generated_frames = []
             for action in range(15):
                 frame = self.generate_frame(context_frames, action, num_inference_steps=20)
                 generated_frames.append(frame)
             
-            # Compute pairwise differences
             frames_stack = torch.stack(generated_frames)
             
             for i in range(15):
@@ -201,9 +185,8 @@ class DiffusionAnalyzer:
         results["mean_difference"] = np.mean([d["mse_diff"] for d in all_differences])
         results["std_difference"] = np.std([d["mse_diff"] for d in all_differences])
         
-        # Group by action type
-        movement_actions = list(range(1, 9))  # Movement
-        strategic_actions = list(range(9, 15))  # Attack, build, etc.
+        movement_actions = list(range(1, 9))  
+        strategic_actions = list(range(9, 15)) 
         
         movement_diffs = [d["mse_diff"] for d in all_differences 
                         if d["action_i"] in movement_actions and d["action_j"] in movement_actions]
@@ -219,9 +202,8 @@ class DiffusionAnalyzer:
         print(f"  Movement actions internal variance: {results['movement_action_mean_diff']:.6f}")
         print(f"  Strategic actions variance: {results['strategic_action_mean_diff']:.6f}")
         
-        # Interpretation
         if results["mean_difference"] < 0.01:
-            print("\n  ⚠️  WARNING: Low action sensitivity - model may be ignoring actions!")
+            print("\n WARNING: Low action sensitivity - model may be ignoring actions!")
         elif results["strategic_action_mean_diff"] > results["movement_action_mean_diff"] * 1.5:
             print("\n  ✓ Strategic actions show higher variance (good sign)")
         
@@ -245,35 +227,29 @@ class DiffusionAnalyzer:
             "degradation_rate": 0.0
         }
         
-        num_test = min(10, len(self.dataset))  # Fewer samples, longer rollouts
+        num_test = min(10, len(self.dataset))  
         indices = np.random.choice(len(self.dataset), num_test, replace=False)
         
         for idx in tqdm(indices, desc="Generating rollouts"):
             sample = self.dataset[idx]
             context_frames = sample["context_frames"].unsqueeze(0).to(self.device)
             
-            rollout_frames = [context_frames[0, -1]]  # Start with last context frame
+            rollout_frames = [context_frames[0, -1]] 
             current_context = context_frames.clone()
             
-            # Generate rollout
             for step in range(self.config.num_rollout_steps):
-                # Random action for rollout
                 action = np.random.randint(0, 15)
                 
-                # Generate next frame
                 next_frame = self.generate_frame(current_context, action, num_inference_steps=10)
                 rollout_frames.append(next_frame[0])
                 
-                # Update context (slide window)
                 current_context = torch.cat([
                     current_context[:, 1:],
                     next_frame.unsqueeze(1)
                 ], dim=1)
             
-            # Analyze rollout quality
             rollout_stack = torch.stack(rollout_frames)
             
-            # Frame-to-frame differences
             frame_diffs = []
             for i in range(1, len(rollout_frames)):
                 diff = F.mse_loss(rollout_stack[i], rollout_stack[i-1]).item()
@@ -285,7 +261,6 @@ class DiffusionAnalyzer:
                 "final_diff": frame_diffs[-1] if frame_diffs else 0
             })
             
-            # Diversity: compare random pairs of generated frames
             diversity_scores = []
             for _ in range(20):
                 i, j = np.random.choice(len(rollout_frames), 2, replace=False)
@@ -294,7 +269,6 @@ class DiffusionAnalyzer:
             
             results["frame_diversity"].append(np.mean(diversity_scores))
         
-        # Aggregate results
         mean_quality = np.mean([r["mean_frame_diff"] for r in results["rollout_quality"]])
         mean_diversity = np.mean(results["frame_diversity"])
         
@@ -302,9 +276,8 @@ class DiffusionAnalyzer:
         print(f"  Mean frame-to-frame difference: {mean_quality:.6f}")
         print(f"  Mean frame diversity: {mean_diversity:.6f}")
         
-        # Check for mode collapse
         if mean_diversity < 0.01:
-            print("\n  ⚠️  WARNING: Low diversity - possible mode collapse!")
+            print("\n WARNING: Low diversity - possible mode collapse!")
         else:
             print("\n  ✓ Reasonable frame diversity maintained")
         
@@ -338,23 +311,18 @@ class DiffusionAnalyzer:
             context_frames = sample["context_frames"].unsqueeze(0).to(self.device)
             action = sample["current_action"].item()
             
-            # Normal generation
             normal_out = self.generate_frame(context_frames, action, num_inference_steps=10)
             
-            # Counterfactual 1: Shuffle context frame order
             shuffled_context = context_frames[:, torch.randperm(context_frames.shape[1])]
             shuffled_out = self.generate_frame(shuffled_context, action, num_inference_steps=10)
             
-            # Counterfactual 2: Replace context with noise
             noise_context = torch.randn_like(context_frames)
             noise_out = self.generate_frame(noise_context, action, num_inference_steps=10)
             
-            # Counterfactual 3: Reverse temporal order
             reversed_context = context_frames.flip(dims=[1])
             reversed_out = self.generate_frame(reversed_context, action, num_inference_steps=10)
             
-            # Measure differences from normal output
-            results["normal_outputs"].append(0)  # Reference
+            results["normal_outputs"].append(0) 
             results["shuffled_context_outputs"].append(
                 F.mse_loss(normal_out, shuffled_out).item()
             )
@@ -365,7 +333,6 @@ class DiffusionAnalyzer:
                 F.mse_loss(normal_out, reversed_out).item()
             )
         
-        # Aggregate
         shuffled_diff = np.mean(results["shuffled_context_outputs"])
         noise_diff = np.mean(results["noise_context_outputs"])
         reversed_diff = np.mean(results["reversed_time_outputs"])
@@ -375,11 +342,10 @@ class DiffusionAnalyzer:
         print(f"  Noise context: {noise_diff:.6f}")
         print(f"  Reversed time: {reversed_diff:.6f}")
         
-        # Interpretation
         if shuffled_diff < 0.01 and reversed_diff < 0.01:
-            print("\n  ⚠️  WARNING: Model ignores context ordering - may not understand time!")
+            print("\n WARNING: Model ignores context ordering - may not understand time!")
         elif noise_diff < shuffled_diff:
-            print("\n  ⚠️  WARNING: Noise context affects less than shuffling - suspicious!")
+            print("\n WARNING: Noise context affects less than shuffling - suspicious!")
         else:
             print("\n  ✓ Model shows appropriate sensitivity to context manipulations")
         
@@ -428,12 +394,9 @@ class DiffusionAnalyzer:
             sample = self.dataset[idx]
             context_frames = sample["context_frames"].unsqueeze(0).to(self.device)
             
-            # Test movement actions
             for action, (dx, dy) in movement_map.items():
                 frame = self.generate_frame(context_frames, action, num_inference_steps=10)
                 
-                # Simple optical flow proxy: compare frame regions
-                # If moving right, right side should change more than left
                 frame_np = frame[0].cpu().numpy().transpose(1, 2, 0)
                 prev_frame_np = context_frames[0, -1].cpu().numpy().transpose(1, 2, 0)
                 
@@ -441,7 +404,6 @@ class DiffusionAnalyzer:
                 
                 h, w = diff.shape
                 
-                # Check if change is biased in expected direction
                 if dx > 0:  # Moving right
                     left_change = diff[:, :w//2].mean()
                     right_change = diff[:, w//2:].mean()
@@ -467,7 +429,6 @@ class DiffusionAnalyzer:
                     "consistency_score": consistency
                 })
         
-        # Aggregate
         mean_consistency = np.mean([r["consistency_score"] for r in results["movement_consistency"]])
         
         print(f"\nResults:")
@@ -492,13 +453,11 @@ class DiffusionAnalyzer:
         print("DIFFUSION MODEL STRATEGY ANALYSIS")
         print("="*60)
         
-        # Run all tests
         self.action_sensitivity_analysis()
         self.temporal_coherence_analysis()
         self.counterfactual_analysis()
         self.strategic_consistency_test()
         
-        # Generate summary
         self._generate_report()
         
         return self.results
@@ -508,10 +467,8 @@ class DiffusionAnalyzer:
         output_dir = Path(self.config.output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
         
-        # Save results
         results_path = output_dir / "analysis_results.json"
         
-        # Convert numpy types to Python types for JSON serialization
         def convert_to_serializable(obj):
             if isinstance(obj, np.ndarray):
                 return obj.tolist()
@@ -534,7 +491,6 @@ class DiffusionAnalyzer:
         print("ANALYSIS SUMMARY")
         print("="*60)
         
-        # Overall assessment
         issues = []
         positives = []
         
@@ -561,7 +517,7 @@ class DiffusionAnalyzer:
         for p in positives:
             print(f"  - {p}")
         
-        print("\n⚠️  Potential issues:")
+        print("\n Potential issues:")
         for i in issues:
             print(f"  - {i}")
         
